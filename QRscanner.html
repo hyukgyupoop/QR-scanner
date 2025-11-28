@@ -24,9 +24,9 @@
         결과 대기 중...
     </div>
 
-    <script>
-        // [중요] 여기에 2단계에서 복사한 Apps Script 웹 앱 URL을 붙여넣으세요!
-        const API_URL = "https://script.google.com/macros/s/AKfycbxexz3AxZ15SXDH5YBxIupScgXbq2wWf4FCKoXmEe6VNz4ioI_mX_-XTEBzoTr7engq/exec"; 
+   <script>
+        // [중요] 배포된 Apps Script 웹 앱 URL (수정하지 마세요)
+        const API_URL = "https://script.google.com/macros/s/AKfycbxexz3AxZ15SXDH5YBXlupScgXbq2wWf4FCKoXmEe6VNz4ioI_mX_-XTEBzoTr7engq/exec"; 
 
         const html5QrCode = new Html5Qrcode("reader");
 
@@ -38,6 +38,79 @@
                 console.error("스캐너 중지 실패:", err);
             });
         };
+
+        // API로 쿠폰 검증을 요청하는 함수 (디버깅 강화판)
+        async function checkCoupon(code) {
+            const display = document.getElementById('result-display');
+            display.className = 'warning';
+            display.innerText = `검증 중... (${code})`;
+
+            try {
+                // Apps Script API 호출
+                const response = await fetch(`${API_URL}?code=${code}`);
+                
+                // 1. HTTP 상태 코드 확인 (200 OK가 아니면 오류)
+                if (!response.ok) {
+                    throw new Error(`HTTP 접속 오류! 상태 코드: ${response.status}`);
+                }
+
+                // 2. 텍스트로 먼저 받아서 확인 (JSON이 아닐 경우를 대비)
+                const textData = await response.text();
+                
+                // 3. 텍스트 내용이 HTML(구글 에러 페이지)인지 확인
+                if (textData.includes("<!DOCTYPE html>") || textData.includes("<html")) {
+                    throw new Error("구글 서버 오류 반환 (HTML): 스크립트 권한이나 주소를 확인하세요.");
+                }
+
+                // 4. JSON 파싱 시도
+                let data;
+                try {
+                    data = JSON.parse(textData);
+                } catch (e) {
+                    throw new Error(`데이터 파싱 실패. 받은 내용: ${textData.substring(0, 50)}...`);
+                }
+
+                // 5. 결과 표시
+                if (data.valid) {
+                    display.className = 'valid';
+                    display.innerText = data.message;
+                } else {
+                    display.className = 'invalid';
+                    display.innerText = data.message;
+                }
+
+            } catch (error) {
+                // 🚨 여기가 핵심입니다! 진짜 오류 내용을 화면에 출력합니다.
+                console.error("API 호출 실패:", error);
+                display.className = 'invalid';
+                // 사용자에게 진짜 오류 메시지를 보여줍니다.
+                display.innerText = `🛑 상세 오류: ${error.message}`;
+            }
+
+            // 5초 후 스캐너 재시작
+            setTimeout(() => {
+                startScanner();
+            }, 5000);
+        }
+
+        // 스캐너 시작 함수
+        const startScanner = () => {
+             document.getElementById('result-display').innerText = "QR 코드를 스캔하세요.";
+             document.getElementById('result-display').className = 'warning';
+
+            const config = { 
+                fps: 10, 
+                qrbox: { width: 250, height: 250 }, 
+                disableFlip: false 
+            };
+            
+            html5QrCode.start({ facingMode: "environment" }, config, onScanSuccess, (err) => {
+                // console.error("스캔 오류:", err);
+            });
+        };
+
+        window.addEventListener('load', startScanner);
+
 
         // API로 쿠폰 검증을 요청하는 함수
         async function checkCoupon(code) {
@@ -93,6 +166,7 @@
 </body>
 
 </html>
+
 
 
 
