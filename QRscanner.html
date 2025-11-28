@@ -2,12 +2,23 @@
 <html>
 <head>
     <title>QR 코드 실시간 검증기</title>
+    <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <script src="https://unpkg.com/html5-qrcode"></script>
     <style>
-        body { font-family: sans-serif; text-align: center; margin: 0; }
-        #reader { width: 100%; max-width: 400px; margin: 20px auto; }
-        #result-display { padding: 20px; color: white; font-size: 1.2em; font-weight: bold; min-height: 50px; }
+        body { font-family: sans-serif; text-align: center; margin: 0; padding: 0; background-color: #f0f0f0; }
+        h2 { margin-top: 20px; }
+        #reader { width: 100%; max-width: 500px; margin: 20px auto; background: #000; }
+        #result-display { 
+            padding: 20px; 
+            margin: 10px;
+            color: white; 
+            font-size: 1.1em; 
+            font-weight: bold; 
+            min-height: 50px; 
+            border-radius: 8px;
+            word-break: break-all; /* 긴 에러 메시지 줄바꿈 */
+        }
         .valid { background-color: #4CAF50; } /* 녹색 */
         .invalid { background-color: #F44336; } /* 빨간색 */
         .warning { background-color: #FF9800; } /* 주황색 */
@@ -20,18 +31,20 @@
 
     <div id="reader"></div>
 
-    <div id="result-display">
-        결과 대기 중...
+    <div id="result-display" class="warning">
+        카메라 준비 중...
     </div>
 
-   <script>
-        // [중요] 배포된 Apps Script 웹 앱 URL (수정하지 마세요)
+    <script>
+        // 🚨 [중요] 여기에 Apps Script 배포 URL을 정확히 넣어주세요!
+        // 따옴표("") 안에 주소를 넣어야 합니다.
         const API_URL = "https://script.google.com/macros/s/AKfycbxexz3AxZ15SXDH5YBXlupScgXbq2wWf4FCKoXmEe6VNz4ioI_mX_-XTEBzoTr7engq/exec"; 
 
         const html5QrCode = new Html5Qrcode("reader");
 
         // 스캔 성공 시 실행되는 함수
         const onScanSuccess = (decodedText, decodedResult) => {
+            // 연속 스캔을 막기 위해 잠시 멈춤
             html5QrCode.stop().then((ignore) => {
                 checkCoupon(decodedText);
             }).catch((err) => {
@@ -39,7 +52,7 @@
             });
         };
 
-        // API로 쿠폰 검증을 요청하는 함수 (디버깅 강화판)
+        // API로 쿠폰 검증을 요청하는 함수 (상세 오류 표시 기능 포함)
         async function checkCoupon(code) {
             const display = document.getElementById('result-display');
             display.className = 'warning';
@@ -49,17 +62,17 @@
                 // Apps Script API 호출
                 const response = await fetch(`${API_URL}?code=${code}`);
                 
-                // 1. HTTP 상태 코드 확인 (200 OK가 아니면 오류)
+                // 1. HTTP 상태 코드 확인
                 if (!response.ok) {
                     throw new Error(`HTTP 접속 오류! 상태 코드: ${response.status}`);
                 }
 
-                // 2. 텍스트로 먼저 받아서 확인 (JSON이 아닐 경우를 대비)
+                // 2. 텍스트로 먼저 받아서 확인
                 const textData = await response.text();
                 
-                // 3. 텍스트 내용이 HTML(구글 에러 페이지)인지 확인
+                // 3. HTML 에러 페이지인지 확인 (구글 로그인 페이지 등)
                 if (textData.includes("<!DOCTYPE html>") || textData.includes("<html")) {
-                    throw new Error("구글 서버 오류 반환 (HTML): 스크립트 권한이나 주소를 확인하세요.");
+                    throw new Error("서버가 HTML을 반환했습니다. Apps Script 권한 설정을 확인하세요.");
                 }
 
                 // 4. JSON 파싱 시도
@@ -67,7 +80,7 @@
                 try {
                     data = JSON.parse(textData);
                 } catch (e) {
-                    throw new Error(`데이터 파싱 실패. 받은 내용: ${textData.substring(0, 50)}...`);
+                    throw new Error(`데이터 파싱 실패. 받은 내용: ${textData.substring(0, 100)}...`);
                 }
 
                 // 5. 결과 표시
@@ -80,60 +93,10 @@
                 }
 
             } catch (error) {
-                // 🚨 여기가 핵심입니다! 진짜 오류 내용을 화면에 출력합니다.
+                // 🚨 화면에 진짜 오류 내용을 보여줍니다.
                 console.error("API 호출 실패:", error);
                 display.className = 'invalid';
-                // 사용자에게 진짜 오류 메시지를 보여줍니다.
-                display.innerText = `🛑 상세 오류: ${error.message}`;
-            }
-
-            // 5초 후 스캐너 재시작
-            setTimeout(() => {
-                startScanner();
-            }, 5000);
-        }
-
-        // 스캐너 시작 함수
-        const startScanner = () => {
-             document.getElementById('result-display').innerText = "QR 코드를 스캔하세요.";
-             document.getElementById('result-display').className = 'warning';
-
-            const config = { 
-                fps: 10, 
-                qrbox: { width: 250, height: 250 }, 
-                disableFlip: false 
-            };
-            
-            html5QrCode.start({ facingMode: "environment" }, config, onScanSuccess, (err) => {
-                // console.error("스캔 오류:", err);
-            });
-        };
-
-        window.addEventListener('load', startScanner);
-
-
-        // API로 쿠폰 검증을 요청하는 함수
-        async function checkCoupon(code) {
-            const display = document.getElementById('result-display');
-            display.className = 'warning';
-            display.innerText = `검증 중... (${code})`;
-
-            try {
-                // Apps Script API 호출 (GET 요청 사용)
-                const response = await fetch(`${API_URL}?code=${code}`);
-                const data = await response.json();
-
-                if (data.valid) {
-                    display.className = 'valid';
-                    display.innerText = data.message;
-                } else {
-                    display.className = 'invalid';
-                    display.innerText = data.message;
-                }
-            } catch (error) {
-                console.error("API 호출 실패:", error);
-                display.className = 'invalid';
-                display.innerText = "통신 오류가 발생했습니다. 네트워크 상태를 확인하세요.";
+                display.innerText = `🛑 오류 발생: ${error.message}`;
             }
 
             // 3초 후 스캐너 재시작
@@ -144,28 +107,31 @@
 
         // 스캐너 시작 함수
         const startScanner = () => {
-             document.getElementById('result-display').innerText = "QR 코드를 스캔하세요.";
-             document.getElementById('result-display').className = 'warning';
+             const display = document.getElementById('result-display');
+             display.innerText = "QR 코드를 스캔하세요.";
+             display.className = 'warning';
 
             // 카메라 설정 (후면 카메라 우선)
             const config = { 
                 fps: 10, 
-                qrbox: { width: 250, height: 250 }, 
-                disableFlip: false 
+                qrbox: { width: 250, height: 250 },
+                aspectRatio: 1.0 
             };
             
+            // 카메라 시작
             html5QrCode.start({ facingMode: "environment" }, config, onScanSuccess, (err) => {
-                // console.error("스캔 오류:", err);
+                // 초기화 실패 시 에러 표시 (권한 거부 등)
+                // display.innerText = `카메라 오류: ${err}`;
             });
         };
 
-        // 페이지 로드 후 스캐너 시작
+        // 페이지 로드 완료 후 실행
         window.addEventListener('load', startScanner);
     </script>
 
 </body>
-
 </html>
+
 
 
 
