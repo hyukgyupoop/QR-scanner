@@ -1,136 +1,149 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>QR 코드 실시간 검증기</title>
+    <title>QR 쿠폰 스캐너</title>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <script src="https://unpkg.com/html5-qrcode"></script>
     <style>
-        body { font-family: sans-serif; text-align: center; margin: 0; padding: 0; background-color: #f0f0f0; }
-        h2 { margin-top: 20px; }
-        #reader { width: 100%; max-width: 500px; margin: 20px auto; background: #000; }
+        body { font-family: sans-serif; text-align: center; margin: 0; padding: 0; background-color: #222; color: #fff; }
+        h2 { margin-top: 20px; color: #fff; }
+        #reader { width: 100%; max-width: 500px; margin: 20px auto; border: 5px solid #444; border-radius: 10px; }
         #result-display { 
-            padding: 20px; 
-            margin: 10px;
-            color: white; 
-            font-size: 1.1em; 
-            font-weight: bold; 
-            min-height: 50px; 
-            border-radius: 8px;
-            word-break: break-all; /* 긴 에러 메시지 줄바꿈 */
+            padding: 20px; margin: 15px; font-size: 1.2em; font-weight: bold; 
+            min-height: 60px; border-radius: 10px; word-break: break-all; box-shadow: 0 4px 6px rgba(0,0,0,0.3);
         }
-        .valid { background-color: #4CAF50; } /* 녹색 */
-        .invalid { background-color: #F44336; } /* 빨간색 */
-        .warning { background-color: #FF9800; } /* 주황색 */
+        .ready { background-color: #444; color: #ccc; }
+        .scanning { background-color: #FF9800; color: white; } /* 주황색 */
+        .valid { background-color: #4CAF50; color: white; font-size: 1.4em; } /* 녹색 */
+        .invalid { background-color: #F44336; color: white; } /* 빨간색 */
     </style>
 </head>
 <body>
 
-    <h2>쿠폰 코드 스캐너</h2>
-    <p>QR 코드를 카메라 중앙에 맞춰주세요.</p>
-
+    <h2>🎫 입장 관리 스캐너</h2>
+    
     <div id="reader"></div>
 
-    <div id="result-display" class="warning">
-        카메라 준비 중...
+    <div id="result-display" class="ready">
+        카메라 로딩 중...
     </div>
 
     <script>
-        // 🚨 [중요] 여기에 Apps Script 배포 URL을 정확히 넣어주세요!
-        // 따옴표("") 안에 주소를 넣어야 합니다.
-        const API_URL = "https://script.google.com/macros/s/AKfycbwhuc8G0ZLnjIoxxnwTD4Ei7neveg0263nVRI5ztiFZb9gQnVPvp_9f1shLWdvQ-mnD/exec"; 
+        // 🚨 [중요] '새 배포'로 받은 Apps Script URL을 여기에 넣으세요!
+        const API_URL = "https://script.google.com/macros/s/AKfycbzT0J67q0lz2vsOFgjFdk6G1jfi-7odomKiRL7d5jvOPnu_HseY40ZC021O7aMViNdr/exec"; 
 
         const html5QrCode = new Html5Qrcode("reader");
+        
+        // 소리 재생을 위한 오디오 컨텍스트
+        const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
 
-        // 스캔 성공 시 실행되는 함수
+        // 🎵 비프음 재생 함수 (type: 'success' or 'error')
+        function playSound(type) {
+            if (audioCtx.state === 'suspended') audioCtx.resume();
+            
+            const oscillator = audioCtx.createOscillator();
+            const gainNode = audioCtx.createGain();
+            
+            oscillator.connect(gainNode);
+            gainNode.connect(audioCtx.destination);
+            
+            if (type === 'success') {
+                // 성공: 딩~동~ (높은음)
+                oscillator.type = 'sine';
+                oscillator.frequency.setValueAtTime(880, audioCtx.currentTime); // A5
+                oscillator.frequency.exponentialRampToValueAtTime(1760, audioCtx.currentTime + 0.1); // A6
+                gainNode.gain.setValueAtTime(0.3, audioCtx.currentTime);
+                gainNode.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.3);
+                oscillator.start();
+                oscillator.stop(audioCtx.currentTime + 0.3);
+            } else {
+                // 실패: 삐--- (낮은 경고음)
+                oscillator.type = 'sawtooth';
+                oscillator.frequency.setValueAtTime(150, audioCtx.currentTime);
+                gainNode.gain.setValueAtTime(0.5, audioCtx.currentTime);
+                gainNode.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.5);
+                oscillator.start();
+                oscillator.stop(audioCtx.currentTime + 0.5);
+            }
+        }
+
+        // 📳 진동 함수
+        function triggerVibration(type) {
+            if (navigator.vibrate) {
+                if (type === 'success') {
+                    navigator.vibrate(100); // 짧게 한 번
+                } else {
+                    navigator.vibrate([300, 100, 300]); // 길게 두 번 (징- 징-)
+                }
+            }
+        }
+
         const onScanSuccess = (decodedText, decodedResult) => {
-            // 연속 스캔을 막기 위해 잠시 멈춤
-            html5QrCode.stop().then((ignore) => {
+            html5QrCode.stop().then(() => {
                 checkCoupon(decodedText);
-            }).catch((err) => {
-                console.error("스캐너 중지 실패:", err);
-            });
+            }).catch(console.error);
         };
 
-        // API로 쿠폰 검증을 요청하는 함수 (상세 오류 표시 기능 포함)
         async function checkCoupon(code) {
             const display = document.getElementById('result-display');
-            display.className = 'warning';
-            display.innerText = `검증 중... (${code})`;
+            display.className = 'scanning';
+            display.innerText = `🔍 확인 중... (${code})`;
 
             try {
-                // Apps Script API 호출
                 const response = await fetch(`${API_URL}?code=${code}`);
+                if (!response.ok) throw new Error(`HTTP 오류: ${response.status}`);
                 
-                // 1. HTTP 상태 코드 확인
-                if (!response.ok) {
-                    throw new Error(`HTTP 접속 오류! 상태 코드: ${response.status}`);
-                }
-
-                // 2. 텍스트로 먼저 받아서 확인
                 const textData = await response.text();
-                
-                // 3. HTML 에러 페이지인지 확인 (구글 로그인 페이지 등)
-                if (textData.includes("<!DOCTYPE html>") || textData.includes("<html")) {
-                    throw new Error("서버가 HTML을 반환했습니다. Apps Script 권한 설정을 확인하세요.");
-                }
+                if (textData.includes("<html")) throw new Error("배포 권한 오류 (HTML 반환됨)");
 
-                // 4. JSON 파싱 시도
-                let data;
-                try {
-                    data = JSON.parse(textData);
-                } catch (e) {
-                    throw new Error(`데이터 파싱 실패. 받은 내용: ${textData.substring(0, 100)}...`);
-                }
+                let data = JSON.parse(textData);
 
-                // 5. 결과 표시
                 if (data.valid) {
+                    // ✅ 성공 시
                     display.className = 'valid';
                     display.innerText = data.message;
+                    playSound('success');       // 소리 (딩동)
+                    triggerVibration('success');// 진동 (짧게)
                 } else {
+                    // ❌ 실패/중복 시
                     display.className = 'invalid';
                     display.innerText = data.message;
+                    playSound('error');         // 소리 (삐-)
+                    triggerVibration('error');  // 진동 (길게)
                 }
 
             } catch (error) {
-                // 🚨 화면에 진짜 오류 내용을 보여줍니다.
-                console.error("API 호출 실패:", error);
+                console.error(error);
                 display.className = 'invalid';
-                display.innerText = `🛑 오류 발생: ${error.message}`;
+                display.innerText = `🛑 오류: ${error.message}`;
+                playSound('error');
+                triggerVibration('error');
             }
 
-            // 3초 후 스캐너 재시작
-            setTimeout(() => {
-                startScanner();
-            }, 3000);
+            // 5초 후 재시작 (요청하신 대로 유지)
+            setTimeout(startScanner, 5000);
         }
 
-        // 스캐너 시작 함수
         const startScanner = () => {
              const display = document.getElementById('result-display');
-             display.innerText = "QR 코드를 스캔하세요.";
-             display.className = 'warning';
+             display.innerText = "QR 코드를 비춰주세요";
+             display.className = 'ready';
 
-            // 카메라 설정 (후면 카메라 우선)
-            const config = { 
-                fps: 10, 
-                qrbox: { width: 250, height: 250 },
-                aspectRatio: 1.0 
-            };
-            
-            // 카메라 시작
-            html5QrCode.start({ facingMode: "environment" }, config, onScanSuccess, (err) => {
-                // 초기화 실패 시 에러 표시 (권한 거부 등)
-                // display.innerText = `카메라 오류: ${err}`;
-            });
+            html5QrCode.start({ facingMode: "environment" }, { fps: 10, qrbox: { width: 250, height: 250 } }, onScanSuccess);
         };
 
-        // 페이지 로드 완료 후 실행
         window.addEventListener('load', startScanner);
+        
+        // [참고] 브라우저 정책상 사용자가 화면을 터치해야 소리가 날 수 있음
+        document.body.addEventListener('click', () => {
+            if (audioCtx.state === 'suspended') audioCtx.resume();
+        });
     </script>
 
 </body>
 </html>
+
 
 
 
